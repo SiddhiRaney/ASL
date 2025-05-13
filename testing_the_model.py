@@ -2,16 +2,15 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Select a random image from the test set
-random_index = random.randint(0, len(X_test) - 1)
-test_image = X_test[random_index]
+# Randomly select one test image
+test_image = X_test[random.randint(0, len(X_test) - 1)]
 
-# Make prediction
-prediction = model.predict(np.expand_dims(test_image, axis=0), verbose=0)
-predicted_label = labels[np.argmax(prediction)]
+# Predict the label
+pred = model.predict(test_image[None, ...], verbose=0)
+predicted_label = labels[np.argmax(pred)]
 
-# Display image with prediction
+# Display the image and predicted label
 plt.imshow(test_image)
 plt.title(f"Predicted: {predicted_label}")
-plt.axis('off')  # Hide axes for cleaner display
+plt.axis('off')
 plt.show()
