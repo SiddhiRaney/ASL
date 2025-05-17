@@ -1,30 +1,87 @@
-import os
-import cv2
-import numpy as np
-from tensorflow.keras.utils import to_categorical
-from sklearn.model_selection import train_test_split
+import tensorflow as tf
 
 # Path to dataset
 data_dir = "asl_alphabet_train/asl_alphabet_train"
 
-# Define image size & categories (A-Z)
-img_size = 64
-labels = sorted(os.listdir(data_dir))  # ['A', 'B', 'C', ..., 'Z']
+# Parameters
+img_size   = (64, 64)
+batch_size = 32
+seed       = 42
 
-X, y = [], []
+# ——— Create Training & Validation Datasets ———
+train_ds = tf.keras.utils.image_dataset_from_directory(
+    data_dir,
+    labels="inferred",
+    label_mode="categorical",      # One-hot
+    validation_split=0.2,
+    subset="training",
+    seed=seed,
+    image_size=img_size,
+    batch_size=batch_size,
+)
 
-# Read images and resize them
-for label in labels:
-    folder_path = os.path.join(data_dir, label)
-    for img in os.listdir(folder_path):
-        img_array = cv2.imread(os.path.join(folder_path, img))
-        img_array = cv2.resize(img_array, (img_size, img_size))
-        X.append(img_array)
-        y.append(labels.index(label))  # Convert label to a number
+val_ds = tf.keras.utils.image_dataset_from_directory(
+    data_dir,
+    labels="inferred",
+    label_mode="categorical",
+    validation_split=0.2,
+    subset="validation",
+    seed=seed,
+    image_size=img_size,
+    batch_size=batch_size,
+)
 
-# Convert to NumPy arrays
-X = np.array(X) / 255.0  # Normalize
-y = to_categorical(np.array(y), num_classes=26)  # One-hot encode labels
+# ——— Optimize Pipeline ———
+AUTOTUNE = tf.data.AUTOTUNE
 
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+def normalize(img, label):
+    img = tf.cast(img, tf.float32) / 255.0
+    return img, label
+
+train_ds = (
+    train_ds
+    .map(normalize, num_parallel_calls=AUTOTUNE)
+    .cache()                 # keep processed images in memory 
+    .shuffle(1000)           # better randomness
+    .prefetch(buffer_size=AUTOTUNE)
+)
+
+val_ds = (
+    val_ds
+    .map(normalize, num_parallel_calls=AUTOTUNE)
+    .cache()
+    .prefetch(buffer_size=AUTOTUNE)
+)
+
+# ——— (Optional) Data Augmentation ———
+data_augmentation = tf.keras.Sequential([
+    tf.keras.layers.RandomFlip("horizontal"),
+    tf.keras.layers.RandomRotation(0.1),
+    tf.keras.layers.RandomZoom(0.1),
+])
+
+# Example of building a simple model
+model = tf.keras.Sequential([
+    data_augmentation,
+    tf.keras.layers.Rescaling(1./255),
+    tf.keras.layers.Conv2D(32, 3, activation='relu'),
+    tf.keras.layers.MaxPooling2D(),
+    tf.keras.layers.Conv2D(64, 3, activation='relu'),
+    tf.keras.layers.MaxPooling2D(),
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(26, activation='softmax'),
+])
+
+model.compile(
+    optimizer="adam",
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+# Train
+model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=10,
+)
