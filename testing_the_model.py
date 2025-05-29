@@ -2,15 +2,16 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Randomly select one test image
-test_image = random.choice(X_test)
+# Select a random test image from the test dataset
+idx = random.randint(0, len(X_test) - 1)
+test_img = X_test[idx]
 
-# Predict the label
-pred = model.predict(np.expand_dims(test_image, axis=0))
-predicted_label = labels[np.argmax(pred)]
+# Expand dimensions to match model input shape and predict the label
+prediction = model.predict(test_img[None, ...], verbose=0)
+pred_label = labels[np.argmax(prediction)]
 
-# Display the image and predicted label
-plt.imshow(test_image.squeeze())  # Use .squeeze() if image has a singleton channel dimension
-plt.title(f"Predicted: {predicted_label}")
+# Display the selected image with the predicted label
+plt.imshow(test_img.squeeze(), cmap='gray' if test_img.shape[-1] == 1 else None)
+plt.title(f"Predicted: {pred_label}")
 plt.axis('off')
 plt.show()
