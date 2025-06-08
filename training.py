@@ -2,14 +2,13 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLRO
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-# Ensure checkpoint directory exists
-chkpt = Path("checkpoints")
-chkpt.mkdir(exist_ok=True)
+# Create checkpoints directory
+Path("checkpoints").mkdir(exist_ok=True)
 
-# Define callbacks concisely
+# Define training callbacks
 callbacks = [
     ModelCheckpoint(
-        chkpt / "sign_language_model.h5",
+        "checkpoints/sign_language_model.h5",
         monitor="val_accuracy",
         save_best_only=True,
         verbose=1
@@ -40,32 +39,22 @@ history = model.fit(
     verbose=2
 )
 
-# Plot training/validation curves
-def plot_history(h):
-    hist = h.history
-    epochs = range(1, len(hist["accuracy"]) + 1)
+# Plot training history
+def plot_history(history):
+    metrics = history.history
+    epochs = range(1, len(metrics["accuracy"]) + 1)
 
     plt.figure(figsize=(14, 5))
 
-    # Accuracy subplot
-    plt.subplot(1, 2, 1)
-    plt.plot(epochs, hist["accuracy"], label="Train")
-    plt.plot(epochs, hist["val_accuracy"], label="Val")
-    plt.title("Accuracy")
-    plt.xlabel("Epochs")
-    plt.ylabel("Accuracy")
-    plt.legend()
-    plt.grid(True)
-
-    # Loss subplot
-    plt.subplot(1, 2, 2)
-    plt.plot(epochs, hist["loss"], label="Train")
-    plt.plot(epochs, hist["val_loss"], label="Val")
-    plt.title("Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.grid(True)
+    for i, metric in enumerate(["accuracy", "loss"], 1):
+        plt.subplot(1, 2, i)
+        plt.plot(epochs, metrics[metric], label="Train")
+        plt.plot(epochs, metrics[f"val_{metric}"], label="Val")
+        plt.title(metric.capitalize())
+        plt.xlabel("Epochs")
+        plt.ylabel(metric.capitalize())
+        plt.legend()
+        plt.grid(True)
 
     plt.tight_layout()
     plt.show()
