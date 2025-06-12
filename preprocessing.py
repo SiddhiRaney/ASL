@@ -1,29 +1,28 @@
-char stackBuffer[100000], suffixMinChar[100000];
-int stackTop;
-
 class Solution {
 public:
-    static string robotWithString(string& input) {
-        int n = input.size();
-        
-        // Compute suffix min characters
-        suffixMinChar[n - 1] = input[n - 1];
-        for (int i = n - 2; i >= 0; --i)
-            suffixMinChar[i] = min(input[i], suffixMinChar[i + 1]);
+    static string robotWithString(string& s) {
+        int n = s.size();
+        string result;
+        result.reserve(n);
 
-        string output;
-        output.reserve(n);
-        stackTop = -1;
+        // Suffix min character array
+        vector<char> suffixMin(n);
+        suffixMin[n - 1] = s[n - 1];
+        for (int i = n - 2; i >= 0; --i)
+            suffixMin[i] = min(s[i], suffixMin[i + 1]);
+
+        // Simulate stack using string
+        string stk;
 
         for (int i = 0; i < n; ++i) {
-            stackBuffer[++stackTop] = input[i]; // Push onto stack
-
-            // Pop while stack top <= min in suffix
-            while (stackTop >= 0 && (i == n - 1 || stackBuffer[stackTop] <= suffixMinChar[i + 1])) {
-                output += stackBuffer[stackTop--]; // Append to result
+            stk.push_back(s[i]);
+            // Pop from stack if top <= suffix min of remaining
+            while (!stk.empty() && (i == n - 1 || stk.back() <= suffixMin[i + 1])) {
+                result += stk.back();
+                stk.pop_back();
             }
         }
 
-        return output;
+        return result;
     }
 };
