@@ -1,14 +1,18 @@
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
+import os
 import matplotlib.pyplot as plt
-from pathlib import Path
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
+from datetime import datetime
 
-# Create checkpoints directory
-Path("checkpoints").mkdir(exist_ok=True)
+# Create checkpoints directory if not exists
+os.makedirs("checkpoints", exist_ok=True)
 
-# Define training callbacks
+# Timestamped filename for better versioning
+checkpoint_path = f"checkpoints/sign_language_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+
+# Callbacks configuration
 callbacks = [
     ModelCheckpoint(
-        "checkpoints/sign_language_model.h5",
+        filepath=checkpoint_path,
         monitor="val_accuracy",
         save_best_only=True,
         verbose=1
@@ -40,21 +44,28 @@ history = model.fit(
 )
 
 # Plot training history
-def plot_history(history):
-    metrics = history.history
-    epochs = range(1, len(metrics["accuracy"]) + 1)
+def plot_history(hist):
+    plt.figure(figsize=(12, 5))
 
-    plt.figure(figsize=(14, 5))
+    # Accuracy Plot
+    plt.subplot(1, 2, 1)
+    plt.plot(hist.history['accuracy'], label='Train Acc')
+    plt.plot(hist.history['val_accuracy'], label='Val Acc')
+    plt.title("Model Accuracy")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.legend()
+    plt.grid(True)
 
-    for i, metric in enumerate(["accuracy", "loss"], 1):
-        plt.subplot(1, 2, i)
-        plt.plot(epochs, metrics[metric], label="Train")
-        plt.plot(epochs, metrics[f"val_{metric}"], label="Val")
-        plt.title(metric.capitalize())
-        plt.xlabel("Epochs")
-        plt.ylabel(metric.capitalize())
-        plt.legend()
-        plt.grid(True)
+    # Loss Plot
+    plt.subplot(1, 2, 2)
+    plt.plot(hist.history['loss'], label='Train Loss')
+    plt.plot(hist.history['val_loss'], label='Val Loss')
+    plt.title("Model Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid(True)
 
     plt.tight_layout()
     plt.show()
