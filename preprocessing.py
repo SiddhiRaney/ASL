@@ -2,27 +2,16 @@ class Solution {
 public:
     static string robotWithString(string& s) {
         int n = s.size();
-        string result;
-        result.reserve(n);
-
-        // Suffix min character array
-        vector<char> suffixMin(n);
-        suffixMin[n - 1] = s[n - 1];
+        string res, stk, sufMin(n, 'z');
+        
         for (int i = n - 2; i >= 0; --i)
-            suffixMin[i] = min(s[i], suffixMin[i + 1]);
-
-        // Simulate stack using string
-        string stk;
+            sufMin[i] = min(s[i], sufMin[i + 1] = s[i + 1]);
 
         for (int i = 0; i < n; ++i) {
-            stk.push_back(s[i]);
-            // Pop from stack if top <= suffix min of remaining
-            while (!stk.empty() && (i == n - 1 || stk.back() <= suffixMin[i + 1])) {
-                result += stk.back();
-                stk.pop_back();
-            }
+            stk += s[i];
+            while (!stk.empty() && (i == n - 1 || stk.back() <= sufMin[i + 1]))
+                res += stk.back(), stk.pop_back();
         }
-
-        return result;
+        return res;
     }
 };
