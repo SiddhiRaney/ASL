@@ -1,50 +1,35 @@
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
+from tensorflow.keras import Sequential
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout
+from tensorflow.keras.applications import MobileNetV2, preprocess_input
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import CategoricalCrossentropy
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 import matplotlib.pyplot as plt
 
-# --- Configuration ---
-train_dir    = "path_to_your_dataset"  # <-- replace with your dataset path
-img_size     = 224
-bs           = 32
-n_classes    = 26
-initial_lr   = 1e-3
-seed         = 123
+# --- Config ---
+IMG_SIZE, BATCH_SIZE, NUM_CLASSES = 224, 32, 26
+EPOCHS = 50
+DATA_PATH = "path_to_your_dataset"
+SEED = 123
 
-# --- Load and preprocess data using tf.data ---
-train_ds = tf.keras.utils.image_dataset_from_directory(
-    train_dir,
-    validation_split=0.2,
-    subset="training",
-    seed=seed,
-    image_size=(img_size, img_size),
-    batch_size=bs,
-    label_mode='categorical'
-)
+# --- Load Data ---
+def load_dataset(split):
+    return tf.keras.utils.image_dataset_from_directory(
+        DATA_PATH, validation_split=0.2, subset=split, seed=SEED,
+        image_size=(IMG_SIZE, IMG_SIZE), batch_size=BATCH_SIZE, label_mode='categorical'
+    )
 
-val_ds = tf.keras.utils.image_dataset_from_directory(
-    train_dir,
-    validation_split=0.2,
-    subset="validation",
-    seed=seed,
-    image_size=(img_size, img_size),
-    batch_size=bs,
-    label_mode='categorical'
-)
+train_ds = load_dataset("training")
+val_ds   = load_dataset("validation")
 
-# Apply preprocessing and performance optimization
 AUTOTUNE = tf.data.AUTOTUNE
-train_ds = train_ds.map(lambda x, y: (preprocess_input(x), y)).cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
-val_ds   = val_ds.map(lambda x, y: (preprocess_input(x), y)).cache().prefetch(buffer_size=AUTOTUNE)
+train_ds = train_ds.map(lambda x, y: (preprocess_input(x), y)).cache().shuffle(1000).prefetch(AUTOTUNE)
+val_ds   = val_ds.map(lambda x, y: (preprocess_input(x), y)).cache().prefetch(AUTOTUNE)
 
-# --- Build model using MobileNetV2 ---
-base_model = MobileNetV2(input_shape=(img_size, img_size, 3), include_top=False, weights='imagenet')
-base_model.trainable = False  # Freeze the base
+# --- Model ---
+base_model = MobileNetV2(input_shape=(IMG_SIZE, IMG_SIZE, 3), include_top=False, weights='imagenet')
+base_model.trainable = False
 
 model = Sequential([
     base_model,
@@ -52,45 +37,39 @@ model = Sequential([
     Dropout(0.5),
     Dense(128, activation='relu'),
     Dropout(0.3),
-    Dense(n_classes, activation='softmax')
+    Dense(NUM_CLASSES, activation='softmax')
 ])
 
-# --- Compile the model ---
-loss_fn = CategoricalCrossentropy(label_smoothing=0.1)
-model.compile(optimizer=Adam(learning_rate=initial_lr), loss=loss_fn, metrics=['accuracy'])
-model.summary()
+model.compile(optimizer=Adam(1e-3),
+              loss=CategoricalCrossentropy(label_smoothing=0.1),
+              metrics=['accuracy'])
 
 # --- Callbacks ---
-lr_reduce = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=1)
-early_stop = EarlyStopping(monitor='val_loss', patience=7, restore_best_weights=True, verbose=1)
-checkpoint = ModelCheckpoint("best_model.h5", monitor="val_loss", save_best_only=True, verbose=1)
+callbacks = [
+    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=1),
+    EarlyStopping(monitor='val_loss', patience=7, restore_best_weights=True, verbose=1),
+    ModelCheckpoint("best_model.h5", monitor="val_loss", save_best_only=True, verbose=1)
+]
 
-# --- Train the model ---
-history = model.fit(
-    train_ds,
-    validation_data=val_ds,
-    epochs=50,
-    callbacks=[lr_reduce, early_stop, checkpoint]
-)
+# --- Train Base ---
+history = model.fit(train_ds, validation_data=val_ds, epochs=EPOCHS, callbacks=callbacks)
 
-# --- Fine-tune top layers of the base model ---
+# --- Fine-tune ---
 base_model.trainable = True
-for layer in base_model.layers[:-30]:  # Freeze bottom layers
+for layer in base_model.layers[:-30]:
     layer.trainable = False
 
-model.compile(optimizer=Adam(learning_rate=1e-5), loss=loss_fn, metrics=['accuracy'])
+model.compile(optimizer=Adam(1e-5),
+              loss=CategoricalCrossentropy(label_smoothing=0.1),
+              metrics=['accuracy'])
 
-# --- Continue training ---
-fine_tune_history = model.fit(
-    train_ds,
-    validation_data=val_ds,
-    epochs=20,
-    callbacks=[lr_reduce, early_stop, checkpoint]
-)
+ft_history = model.fit(train_ds, validation_data=val_ds, epochs=20, callbacks=callbacks)
 
-# --- Plot accuracy ---
-plt.plot(history.history['accuracy'] + fine_tune_history.history['accuracy'], label='Train Acc')
-plt.plot(history.history['val_accuracy'] + fine_tune_history.history['val_accuracy'], label='Val Acc')
+# --- Plot ---
+acc = history.history['accuracy'] + ft_history.history['accuracy']
+val_acc = history.history['val_accuracy'] + ft_history.history['val_accuracy']
+plt.plot(acc, label='Train Acc')
+plt.plot(val_acc, label='Val Acc')
 plt.title('Training & Validation Accuracy')
 plt.xlabel('Epoch')
 plt.ylabel('Accuracy')
