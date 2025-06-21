@@ -1,20 +1,23 @@
 import os
 import matplotlib.pyplot as plt
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau, TensorBoard
 from datetime import datetime
 
-# Create checkpoints directory if not exists
+# Ensure checkpoints directory exists
 os.makedirs("checkpoints", exist_ok=True)
 
-# Timestamped filename for better versioning
-model_checkpoint_filename = f"checkpoints/sign_language_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.h5"
+# Generate a timestamped filename for the best model
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+checkpoint_path = f"checkpoints/sign_language_model_{timestamp}.h5"
+log_dir = f"logs/train_{timestamp}"
 
-# Callbacks configuration
-training_callbacks = [
+# Define Callbacks
+callbacks = [
     ModelCheckpoint(
-        filepath=model_checkpoint_filename,
+        filepath=checkpoint_path,
         monitor="val_accuracy",
         save_best_only=True,
+        save_weights_only=False,
         verbose=1
     ),
     EarlyStopping(
@@ -29,39 +32,41 @@ training_callbacks = [
         patience=2,
         min_lr=1e-6,
         verbose=1
-    )
+    ),
+    TensorBoard(log_dir=log_dir, histogram_freq=1)
 ]
 
 # Train the model
-training_history = model.fit(
-    X_train, y_train,
-    validation_data=(X_test, y_test),
-    epochs=20,
-    batch_size=32,
-    shuffle=True,
-    callbacks=training_callbacks,
-    verbose=2
-)
+def train_model(model, X_train, y_train, X_test, y_test, callbacks):
+    return model.fit(
+        X_train, y_train,
+        validation_data=(X_test, y_test),
+        epochs=20,
+        batch_size=32,
+        shuffle=True,
+        callbacks=callbacks,
+        verbose=2
+    )
 
-# Plot training history
-def plot_training_metrics(history_data):
+# Plot accuracy and loss
+def plot_training_metrics(history):
     plt.figure(figsize=(12, 5))
 
-    # Accuracy Plot
+    # Accuracy
     plt.subplot(1, 2, 1)
-    plt.plot(history_data.history['accuracy'], label='Train Accuracy')
-    plt.plot(history_data.history['val_accuracy'], label='Validation Accuracy')
-    plt.title("Model Accuracy Over Epochs")
+    plt.plot(history.history['accuracy'], label='Train Accuracy')
+    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+    plt.title("Model Accuracy")
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
     plt.legend()
     plt.grid(True)
 
-    # Loss Plot
+    # Loss
     plt.subplot(1, 2, 2)
-    plt.plot(history_data.history['loss'], label='Train Loss')
-    plt.plot(history_data.history['val_loss'], label='Validation Loss')
-    plt.title("Model Loss Over Epochs")
+    plt.plot(history.history['loss'], label='Train Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title("Model Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.legend()
@@ -70,4 +75,8 @@ def plot_training_metrics(history_data):
     plt.tight_layout()
     plt.show()
 
+# Start training
+training_history = train_model(model, X_train, y_train, X_test, y_test, callbacks)
+
+# Plot metrics
 plot_training_metrics(training_history)
