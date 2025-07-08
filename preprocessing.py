@@ -2,23 +2,22 @@ class Solution {
 public:
     static string robotWithString(string& s) {
         int len = s.size();
-        string ans, stk;  // 'stk' used instead of 'stack' to avoid shadowing std::stack
-        vector<char> minRight(len, 'z');
+        string result, stk;
+        vector<char> minRight(len + 1, 'z' + 1);  // one extra space to avoid out-of-bound check
 
-        // Precompute the minimum character to the right of each position
-        for (int i = len - 2; i >= 0; --i)
+        // Precompute min character from i to end
+        for (int i = len - 1; i >= 0; --i)
             minRight[i] = min(s[i], minRight[i + 1]);
 
-        // Traverse the string
         for (int i = 0; i < len; ++i) {
-            stk += s[i];  // Push current character onto stk
+            stk.push_back(s[i]);
 
-            // Pop from stk if it's lexicographically smaller or equal to the smallest character remaining
-            while (!stk.empty() && (i == len - 1 || stk.back() <= minRight[i + 1])) {
-                ans += stk.back();
+            // Pop from stack while top <= min of remaining characters
+            while (!stk.empty() && stk.back() <= minRight[i + 1]) {
+                result.push_back(stk.back());
                 stk.pop_back();
             }
         }
-        return ans;
+        return result;
     }
 };
