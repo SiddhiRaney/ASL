@@ -2,19 +2,18 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Select random test image
-i = random.randrange(len(X_test))
-x = X_test[i]
-y = model.predict(x[np.newaxis, ...], verbose=0)[0]
+# Randomly pick one test sample
+idx = random.randrange(len(X_test))
+image = X_test[idx]
 
-# Get predicted label and confidence
-j = np.argmax(y)
-lbl = labels[j]
-conf = y[j] * 100
+# Predict once and get top result
+probs = model.predict(image[np.newaxis], verbose=0)[0]
+pred_idx = np.argmax(probs)
+label = labels[pred_idx]
+confidence = probs[pred_idx] * 100
 
-# Display the image with prediction
-plt.imshow(x.squeeze(), cmap='gray' if x.shape[-1] == 1 else None)
-plt.title(f"{lbl} ({conf:.2f}%)")
+# Display the result
+plt.imshow(image.squeeze(), cmap='gray' if image.ndim == 3 and image.shape[-1] == 1 else None)
+plt.title(f"{label} ({confidence:.2f}%)")
 plt.axis('off')
-plt.tight_layout()
 plt.show()
