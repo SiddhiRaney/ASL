@@ -1,6 +1,7 @@
 import os
-import matplotlib.pyplot as plt
 from datetime import datetime
+import matplotlib.pyplot as plt
+import tensorflow as tf
 from tensorflow.keras.callbacks import (
     ModelCheckpoint, EarlyStopping, ReduceLROnPlateau, TensorBoard
 )
@@ -10,8 +11,11 @@ from tensorflow.keras.callbacks import (
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 ckpt_dir = "checkpoints"
 log_dir = f"logs/train_{timestamp}"
+
 os.makedirs(ckpt_dir, exist_ok=True)
-ckpt_path = f"{ckpt_dir}/sign_lang_{timestamp}.h5"
+os.makedirs(log_dir, exist_ok=True)
+
+ckpt_path = os.path.join(ckpt_dir, f"sign_lang_{timestamp}.h5")
 
 
 # === Define Callbacks === #
@@ -26,13 +30,13 @@ def get_callbacks():
         ),
         EarlyStopping(
             monitor="val_loss",
-            patience=5,
+            patience=7,                 # slightly increased for more stability
             restore_best_weights=True,
             verbose=1
         ),
         ReduceLROnPlateau(
             monitor="val_loss",
-            factor=0.3,
+            factor=0.2,                 # smaller decay for finer tuning
             patience=3,
             min_lr=1e-6,
             verbose=1
@@ -45,36 +49,53 @@ def get_callbacks():
     ]
 
 
-# === Model Training === #
-def train_model(model, X_train, y_train, X_val, y_val, epochs=30, batch_size=64):
-    """Train the model with callbacks and optimized parameters."""
-    return model.fit(
-        X_train, y_train,
-        validation_data=(X_val, y_val),
+# === Optimized Model Training === #
+def train_model(model, X_train, y_train, X_val, y_val, epochs=40, batch_size=64):
+    """
+    Train the model with callbacks and optimized parameters.
+    """
+    # Enable TensorFlow mixed precision if GPU is available
+    if tf.config.list_physical_devices('GPU'):
+        tf.keras.mixed_precision.set_global_policy('mixed_float16')
+
+    # Prefetch and cache data for faster I/O
+    train_data = tf.data.Dataset.from_tensor_slices((X_train, y_train)) \
+        .shuffle(buffer_size=len(X_train)) \
+        .batch(batch_size) \
+        .prefetch(tf.data.AUTOTUNE)
+
+    val_data = tf.data.Dataset.from_tensor_slices((X_val, y_val)) \
+        .batch(batch_size) \
+        .prefetch(tf.data.AUTOTUNE)
+
+    history = model.fit(
+        train_data,
+        validation_data=val_data,
         epochs=epochs,
-        batch_size=batch_size,
-        shuffle=True,
         callbacks=get_callbacks(),
         verbose=2
     )
 
+    return history
 
-# === Plot Metrics === #
+
+# === Plot Training Metrics === #
 def plot_metrics(history):
-    """Plot training and validation accuracy/loss."""
+    """
+    Plot training and validation accuracy/loss.
+    """
+    metrics = [('accuracy', 'Accuracy'), ('loss', 'Loss')]
     plt.figure(figsize=(12, 5))
-    for i, (metric, label, title) in enumerate([
-        ('accuracy', 'Accuracy', 'Model Accuracy'),
-        ('loss', 'Loss', 'Model Loss')
-    ]):
+
+    for i, (metric, label) in enumerate(metrics):
         plt.subplot(1, 2, i + 1)
         plt.plot(history.history[metric], 'o-', label=f'Train {label}')
-        plt.plot(history.history[f'val_{metric}'], 'o-', label=f'Val {label}')
-        plt.title(title)
-        plt.xlabel('Epoch')
+        plt.plot(history.history[f'val_{metric}'], 'o-', label=f'Validation {label}')
+        plt.title(f'Model {label}')
+        plt.xlabel('Epochs')
         plt.ylabel(label)
         plt.legend()
-        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.grid(True, linestyle='--', alpha=0.6)
 
     plt.tight_layout()
     plt.show()
