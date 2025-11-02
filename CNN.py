@@ -3,58 +3,135 @@ from tensorflow.keras.applications import MobileNetV2, preprocess_input
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import CategoricalCrossentropy
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint
 import matplotlib.pyplot as plt
 
-# --- Config ---
-IMG_SIZE, BATCH, CLASSES, EPOCHS, FT_EPOCHS = 224, 32, 26, 50, 20
-DATA_PATH, SEED = "path_to_your_dataset", 123
+# --- CONFIG ---
+IMG_SIZE = 224
+BATCH_SIZE = 32
+CLASSES = 26
+EPOCHS = 30
+FINE_TUNE_EPOCHS = 15
+DATA_PATH = "path_to_your_dataset"
+SEED = 123
 tf.random.set_seed(SEED)
 
-# --- Dataset Loader ---
-load_ds = lambda split: tf.keras.utils.image_dataset_from_directory(
-    DATA_PATH, validation_split=0.2, subset=split, seed=SEED,
-    image_size=(IMG_SIZE, IMG_SIZE), batch_size=BATCH, label_mode='categorical'
-)
-prep_ds = lambda ds: ds.map(lambda x, y: (preprocess_input(x), y)).prefetch(tf.data.AUTOTUNE)
+# --- DATA PIPELINE ---
+def create_dataset(data_path, img_size, batch_size, seed):
+    train_ds = tf.keras.utils.image_dataset_from_directory(
+        data_path,
+        validation_split=0.2,
+        subset="training",
+        seed=seed,
+        image_size=(img_size, img_size),
+        batch_size=batch_size,
+        label_mode="categorical",
+    )
 
-train_ds, val_ds = prep_ds(load_ds("training").shuffle(1000)), prep_ds(load_ds("validation"))
+    val_ds = tf.keras.utils.image_dataset_from_directory(
+        data_path,
+        validation_split=0.2,
+        subset="validation",
+        seed=seed,
+        image_size=(img_size, img_size),
+        batch_size=batch_size,
+        label_mode="categorical",
+    )
 
-# --- Build Model ---
-def build_model(base_trainable=False, fine_tune_from=None):
-    base = MobileNetV2(input_shape=(IMG_SIZE, IMG_SIZE, 3), include_top=False, weights='imagenet')
-    base.trainable = base_trainable
-    if base_trainable and fine_tune_from is not None:
-        for l in base.layers[:fine_tune_from]: l.trainable = False
-    return Sequential([
-        base, GlobalAveragePooling2D(), Dropout(0.5),
-        Dense(128, activation='relu'), Dropout(0.3),
+    # Data augmentation (helps generalization)
+    aug = tf.keras.Sequential([
+        tf.keras.layers.RandomFlip("horizontal"),
+        tf.keras.layers.RandomRotation(0.1),
+        tf.keras.layers.RandomZoom(0.1)
+    ])
+
+    def preprocess(x, y):
+        x = aug(x)
+        return preprocess_input(x), y
+
+    train_ds = train_ds.map(preprocess, num_parallel_calls=tf.data.AUTOTUNE)
+    val_ds = val_ds.map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=tf.data.AUTOTUNE)
+
+    return train_ds.prefetch(tf.data.AUTOTUNE), val_ds.prefetch(tf.data.AUTOTUNE)
+
+train_ds, val_ds = create_dataset(DATA_PATH, IMG_SIZE, BATCH_SIZE, SEED)
+
+# --- MODEL BUILDER ---
+def build_model(trainable=False, fine_tune_at=None):
+    base = MobileNetV2(
+        input_shape=(IMG_SIZE, IMG_SIZE, 3),
+        include_top=False,
+        weights="imagenet"
+    )
+
+    if trainable:
+        base.trainable = True
+        if fine_tune_at is not None:
+            for layer in base.layers[:fine_tune_at]:
+                layer.trainable = False
+    else:
+        base.trainable = False
+
+    model = Sequential([
+        base,
+        GlobalAveragePooling2D(),
+        Dropout(0.4),
+        Dense(256, activation='relu'),
+        Dropout(0.3),
         Dense(CLASSES, activation='softmax')
     ])
 
-model = build_model()
-model.compile(optimizer=Adam(1e-3), loss=CategoricalCrossentropy(label_smoothing=0.1), metrics=['accuracy'])
+    return model
 
-# --- Callbacks ---
-cb = [
-    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=0),
-    EarlyStopping(monitor='val_loss', patience=7, restore_best_weights=True, verbose=0),
-    ModelCheckpoint("best_model.h5", save_best_only=True, monitor="val_loss", verbose=0)
+# --- CALLBACKS ---
+callbacks = [
+    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2, verbose=1),
+    EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True, verbose=1),
+    ModelCheckpoint("best_mobilenetv2.h5", monitor="val_loss", save_best_only=True, verbose=1)
 ]
 
-# --- Train ---
-hist1 = model.fit(train_ds, validation_data=val_ds, epochs=EPOCHS, callbacks=cb)
+# --- PHASE 1: FEATURE EXTRACTION ---
+model = build_model(trainable=False)
+model.compile(
+    optimizer=Adam(learning_rate=1e-3),
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
+    metrics=['accuracy']
+)
 
-# --- Fine-tune ---
-model = build_model(base_trainable=True, fine_tune_from=-30)
-model.compile(optimizer=Adam(1e-5), loss=CategoricalCrossentropy(label_smoothing=0.1), metrics=['accuracy'])
-hist2 = model.fit(train_ds, validation_data=val_ds, epochs=FT_EPOCHS, callbacks=cb)
+history_1 = model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=EPOCHS,
+    callbacks=callbacks
+)
 
-# --- Plot ---
-acc = hist1.history['accuracy'] + hist2.history['accuracy']
-val_acc = hist1.history['val_accuracy'] + hist2.history['val_accuracy']
-plt.plot(acc, label='Train Acc', marker='o')
-plt.plot(val_acc, label='Val Acc', marker='x')
-plt.title('Accuracy Over Epochs'); plt.xlabel('Epoch'); plt.ylabel('Accuracy')
-plt.grid(); plt.legend(); plt.tight_layout(); plt.show()
+# --- PHASE 2: FINE-TUNING ---
+model = build_model(trainable=True, fine_tune_at=100)
+model.compile(
+    optimizer=Adam(learning_rate=1e-5),
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05),
+    metrics=['accuracy']
+)
+
+history_2 = model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=FINE_TUNE_EPOCHS,
+    callbacks=callbacks
+)
+
+# --- MERGE HISTORIES ---
+acc = history_1.history['accuracy'] + history_2.history['accuracy']
+val_acc = history_1.history['val_accuracy'] + history_2.history['val_accuracy']
+
+# --- PLOT RESULTS ---
+plt.figure(figsize=(8,5))
+plt.plot(acc, 'o-', label='Train Accuracy')
+plt.plot(val_acc, 'x-', label='Validation Accuracy')
+plt.title("Model Accuracy Progression")
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
