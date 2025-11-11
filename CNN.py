@@ -27,7 +27,6 @@ def create_dataset(data_path, img_size, batch_size, seed):
         batch_size=batch_size,
         label_mode="categorical",
     )
-
     val_ds = tf.keras.utils.image_dataset_from_directory(
         data_path,
         validation_split=0.2,
@@ -38,21 +37,34 @@ def create_dataset(data_path, img_size, batch_size, seed):
         label_mode="categorical",
     )
 
-    # Data augmentation (helps generalization)
+    # Cache and prefetch for faster I/O
+    AUTOTUNE = tf.data.AUTOTUNE
+
+    # Data augmentation
     aug = tf.keras.Sequential([
         tf.keras.layers.RandomFlip("horizontal"),
         tf.keras.layers.RandomRotation(0.1),
-        tf.keras.layers.RandomZoom(0.1)
+        tf.keras.layers.RandomZoom(0.1),
     ])
 
-    def preprocess(x, y):
-        x = aug(x)
-        return preprocess_input(x), y
+    def augment(x, y):
+        return preprocess_input(aug(x)), y
 
-    train_ds = train_ds.map(preprocess, num_parallel_calls=tf.data.AUTOTUNE)
-    val_ds = val_ds.map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=tf.data.AUTOTUNE)
+    train_ds = (
+        train_ds
+        .map(augment, num_parallel_calls=AUTOTUNE)
+        .cache()
+        .shuffle(1000)
+        .prefetch(AUTOTUNE)
+    )
+    val_ds = (
+        val_ds
+        .map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=AUTOTUNE)
+        .cache()
+        .prefetch(AUTOTUNE)
+    )
 
-    return train_ds.prefetch(tf.data.AUTOTUNE), val_ds.prefetch(tf.data.AUTOTUNE)
+    return train_ds, val_ds
 
 train_ds, val_ds = create_dataset(DATA_PATH, IMG_SIZE, BATCH_SIZE, SEED)
 
@@ -64,13 +76,11 @@ def build_model(trainable=False, fine_tune_at=None):
         weights="imagenet"
     )
 
-    if trainable:
-        base.trainable = True
-        if fine_tune_at is not None:
-            for layer in base.layers[:fine_tune_at]:
-                layer.trainable = False
-    else:
-        base.trainable = False
+    # Freeze / Unfreeze layers
+    base.trainable = trainable
+    if trainable and fine_tune_at:
+        for layer in base.layers[:fine_tune_at]:
+            layer.trainable = False
 
     model = Sequential([
         base,
@@ -80,7 +90,6 @@ def build_model(trainable=False, fine_tune_at=None):
         Dropout(0.3),
         Dense(CLASSES, activation='softmax')
     ])
-
     return model
 
 # --- CALLBACKS ---
@@ -93,7 +102,7 @@ callbacks = [
 # --- PHASE 1: FEATURE EXTRACTION ---
 model = build_model(trainable=False)
 model.compile(
-    optimizer=Adam(learning_rate=1e-3),
+    optimizer=Adam(1e-3),
     loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
     metrics=['accuracy']
 )
@@ -102,22 +111,26 @@ history_1 = model.fit(
     train_ds,
     validation_data=val_ds,
     epochs=EPOCHS,
-    callbacks=callbacks
+    callbacks=callbacks,
+    verbose=1
 )
 
 # --- PHASE 2: FINE-TUNING ---
-model = build_model(trainable=True, fine_tune_at=100)
-model.compile(
-    optimizer=Adam(learning_rate=1e-5),
+fine_tune_model = build_model(trainable=True, fine_tune_at=100)
+fine_tune_model.set_weights(model.get_weights())  # carry over pre-trained weights
+
+fine_tune_model.compile(
+    optimizer=Adam(1e-5),
     loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05),
     metrics=['accuracy']
 )
 
-history_2 = model.fit(
+history_2 = fine_tune_model.fit(
     train_ds,
     validation_data=val_ds,
     epochs=FINE_TUNE_EPOCHS,
-    callbacks=callbacks
+    callbacks=callbacks,
+    verbose=1
 )
 
 # --- MERGE HISTORIES ---
@@ -128,7 +141,7 @@ val_acc = history_1.history['val_accuracy'] + history_2.history['val_accuracy']
 plt.figure(figsize=(8,5))
 plt.plot(acc, 'o-', label='Train Accuracy')
 plt.plot(val_acc, 'x-', label='Validation Accuracy')
-plt.title("Model Accuracy Progression")
+plt.title("MobileNetV2 Accuracy Progression")
 plt.xlabel("Epochs")
 plt.ylabel("Accuracy")
 plt.grid(True)
