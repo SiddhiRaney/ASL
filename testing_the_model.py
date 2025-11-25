@@ -2,33 +2,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 
-# Pick a random test image
-idx = random.randint(0, len(X_test) - 1)
-img = X_test[idx]
+def show_random_pred(model, X, lbls):
+    # pick image
+    i = random.randint(0, len(X)-1)
+    im = X[i]
 
-# Predict probabilities for the chosen image
-probs = model.predict(np.expand_dims(img, axis=0), verbose=0)[0]
-pred_idx = np.argmax(probs)
-label = labels[pred_idx]
-confidence = probs[pred_idx] * 100
+    # prediction
+    pr = model.predict(im[None], verbose=0)[0]
+    c = pr.argmax()
+    conf = pr[c] * 100
 
-# Visualization setup
-plt.figure(figsize=(4, 4))
-plt.imshow(img.squeeze(), cmap='gray' if img.ndim == 3 and img.shape[-1] == 1 else None)
-plt.title(f"{label} — {confidence:.2f}%", fontsize=12)
-plt.axis('off')
-plt.tight_layout()
-plt.show()
+    # plot
+    plt.figure(figsize=(4,4))
+    plt.imshow(im.squeeze(), cmap='gray' if im.ndim==3 and im.shape[-1]==1 else None)
+    plt.title(f"{lbls[c]} — {conf:.2f}%", fontsize=12)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.show()
 
-idx = np.random.randint(len(X_test))
-img = X_test[idx]
-
-probs = model.predict(img[None], verbose=0)[0]
-p = probs.argmax()
-
-plt.figure(figsize=(4,4))
-plt.imshow(img.squeeze(), cmap='gray' if img.ndim==3 and img.shape[-1]==1 else None)
-plt.title(f"{labels[p]} — {probs[p]*100:.2f}%", fontsize=12)
-plt.axis('off')
-plt.tight_layout()
-plt.show()
+# Call twice (or however many times you want)
+show_random_pred(model, X_test, labels)
+show_random_pred(model, X_test, labels)
