@@ -7,22 +7,22 @@ from tensorflow.keras.callbacks import (
 )
 
 
-# === Setup Directories === #
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-ckpt_dir = "checkpoints"
-log_dir = f"logs/train_{timestamp}"
+# === Paths === #
+ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+ck_dir = "checkpoints"
+lg_dir = f"logs/train_{ts}"
 
-os.makedirs(ckpt_dir, exist_ok=True)
-os.makedirs(log_dir, exist_ok=True)
+os.makedirs(ck_dir, exist_ok=True)
+os.makedirs(lg_dir, exist_ok=True)
 
-ckpt_path = os.path.join(ckpt_dir, f"sign_lang_{timestamp}.h5")
+ck_path = os.path.join(ck_dir, f"sign_{ts}.h5")
 
 
-# === Define Callbacks === #
-def get_callbacks():
+# === Callbacks === #
+def cb():
     return [
         ModelCheckpoint(
-            filepath=ckpt_path,
+            filepath=ck_path,
             monitor="val_accuracy",
             mode="max",
             save_best_only=True,
@@ -30,70 +30,69 @@ def get_callbacks():
         ),
         EarlyStopping(
             monitor="val_loss",
-            patience=7,                 # slightly increased for more stability
+            patience=7,
             restore_best_weights=True,
             verbose=1
         ),
         ReduceLROnPlateau(
             monitor="val_loss",
-            factor=0.2,                 # smaller decay for finer tuning
+            factor=0.2,
             patience=3,
             min_lr=1e-6,
             verbose=1
         ),
         TensorBoard(
-            log_dir=log_dir,
+            log_dir=lg_dir,
             histogram_freq=1,
             profile_batch=0
         )
     ]
 
 
-# === Optimized Model Training === #
-def train_model(model, X_train, y_train, X_val, y_val, epochs=40, batch_size=64):
-    """
-    Train the model with callbacks and optimized parameters.
-    """
-    # Enable TensorFlow mixed precision if GPU is available
+# === Training Function === #
+def train(model, x_tr, y_tr, x_val, y_val, ep=40, bs=64):
+
+    # Mixed precision (GPU only)
     if tf.config.list_physical_devices('GPU'):
         tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
-    # Prefetch and cache data for faster I/O
-    train_data = tf.data.Dataset.from_tensor_slices((X_train, y_train)) \
-        .shuffle(buffer_size=len(X_train)) \
-        .batch(batch_size) \
+    # TF Dataset for speed
+    tr_ds = (
+        tf.data.Dataset.from_tensor_slices((x_tr, y_tr))
+        .shuffle(len(x_tr))
+        .batch(bs)
         .prefetch(tf.data.AUTOTUNE)
+    )
 
-    val_data = tf.data.Dataset.from_tensor_slices((X_val, y_val)) \
-        .batch(batch_size) \
+    val_ds = (
+        tf.data.Dataset.from_tensor_slices((x_val, y_val))
+        .batch(bs)
         .prefetch(tf.data.AUTOTUNE)
+    )
 
-    history = model.fit(
-        train_data,
-        validation_data=val_data,
-        epochs=epochs,
-        callbacks=get_callbacks(),
+    hist = model.fit(
+        tr_ds,
+        validation_data=val_ds,
+        epochs=ep,
+        callbacks=cb(),
         verbose=2
     )
 
-    return history
+    return hist
 
 
-# === Plot Training Metrics === #
-def plot_metrics(history):
-    """
-    Plot training and validation accuracy/loss.
-    """
-    metrics = [('accuracy', 'Accuracy'), ('loss', 'Loss')]
+# === Plot === #
+def plot(hist):
+    mets = [('accuracy', 'Accuracy'), ('loss', 'Loss')]
     plt.figure(figsize=(12, 5))
 
-    for i, (metric, label) in enumerate(metrics):
+    for i, (m, lbl) in enumerate(mets):
         plt.subplot(1, 2, i + 1)
-        plt.plot(history.history[metric], 'o-', label=f'Train {label}')
-        plt.plot(history.history[f'val_{metric}'], 'o-', label=f'Validation {label}')
-        plt.title(f'Model {label}')
+        plt.plot(hist.history[m], 'o-', label=f'Train {lbl}')
+        plt.plot(hist.history[f'val_{m}'], 'o-', label=f'Val {lbl}')
+        plt.title(lbl)
         plt.xlabel('Epochs')
-        plt.ylabel(label)
+        plt.ylabel(lbl)
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.6)
 
@@ -101,6 +100,6 @@ def plot_metrics(history):
     plt.show()
 
 
-# === Execute Training and Plot === #
-history = train_model(model, X_train, y_train, X_test, y_test)
-plot_metrics(history)
+# === Run === #
+history = train(model, X_train, y_train, X_test, y_test)
+plot(history)
